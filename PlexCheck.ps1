@@ -79,47 +79,49 @@ $movies = $library.SelectNodes("/MediaContainer/Video") |
 $body = "Hey there!<br/><br/>The movies listed below were added to the <a href=`"http://app.plex.tv/web/app`">Plex library</a> in the past $days days.<br/><br/>"
 $body += '<table style="width:100%">'
 
-foreach ($movie in $movies){
-    $omdbURL = "omdbapi.com/?t=$($movie.title)&y=$($movie.year)&r=JSON"
-    $body += "<tr>"
-    $omdbResponse = ConvertFrom-JSON (Invoke-WebRequest $omdbURL).content
-    if ($omdbResponse.Response -eq "True") {
-        if ($omdbResponse.Poster -eq "N/A") {
-            # If the poster was unavailable, substitute a Plex logo
-            $imgURL = $imgPlex
-            $imgHeight = "150"
-        } else {
-            $imgURL = $omdbResponse.Poster
-            $imgHeight = "234"
+if ($movies.count -gt 0) {
+    foreach ($movie in $movies){
+        $omdbURL = "omdbapi.com/?t=$($movie.title)&y=$($movie.year)&r=JSON"
+        $body += "<tr>"
+        $omdbResponse = ConvertFrom-JSON (Invoke-WebRequest $omdbURL).content
+        if ($omdbResponse.Response -eq "True") {
+            if ($omdbResponse.Poster -eq "N/A") {
+                # If the poster was unavailable, substitute a Plex logo
+                $imgURL = $imgPlex
+                $imgHeight = "150"
+            } else {
+                $imgURL = $omdbResponse.Poster
+                $imgHeight = "234"
+            }
+            $body += "<td><img src=`"$imgURL`" height=$($imgHeight)px width=150px></td>"
+            $body += "<td><li><a href=`"http://www.imdb.com/title/$($omdbResponse.imdbID)/`">$($movie.title)</a> ($($movie.year))</li>"
+            $body += "<ul><li><i>Genre:</i> $($omdbResponse.Genre)</li>"
+            $body += "<li><i>Rating:</i> $($omdbResponse.Rated)</li>"
+            $body += "<li><i>Runtime:</i> $($omdbResponse.Runtime)</li>"
+            $body += "<li><i>Director:</i> $($omdbResponse.Director)</li>"
+            $body += "<li><i>Plot:</i> $($omdbResponse.Plot)</li>"
+            $body += "<li><i>IMDB rating:</i> $($omdbResponse.imdbRating)/10</li>"
+            $body += "<li><i>Added:</i> $(Get-Date $epoch.AddSeconds($movie.addedAt) -Format 'MMMM d')</li></ul></td>"
         }
-        $body += "<td><img src=`"$imgURL`" height=$($imgHeight)px width=150px></td>"
-        $body += "<td><li><a href=`"http://www.imdb.com/title/$($omdbResponse.imdbID)/`">$($movie.title)</a> ($($movie.year))</li>"
-        $body += "<ul><li><i>Genre:</i> $($omdbResponse.Genre)</li>"
-        $body += "<li><i>Rating:</i> $($omdbResponse.Rated)</li>"
-        $body += "<li><i>Runtime:</i> $($omdbResponse.Runtime)</li>"
-        $body += "<li><i>Director:</i> $($omdbResponse.Director)</li>"
-        $body += "<li><i>Plot:</i> $($omdbResponse.Plot)</li>"
-        $body += "<li><i>IMDB rating:</i> $($omdbResponse.imdbRating)/10</li>"
-        $body += "<li><i>Added:</i> $(Get-Date $epoch.AddSeconds($movie.addedAt) -Format 'MMMM d')</li></ul></td>"
+        else {
+            # If the movie couldn't be found in the DB, fail gracefull
+            $body += "<td><img src=`"$imgPlex`" height=150px width=150px></td><td><li>$($movie.title)</a> ($($movie.year)) - no additional information</li></td>"
+        }
+        $body += "</tr>"
+        
     }
-    else {
-        # If the movie couldn't be found in the DB, fail gracefull
-        $body += "<td><img src=`"$imgPlex`" height=150px width=150px></td><td><li>$($movie.title)</a> ($($movie.year)) - no additional information</li></td>"
-    }
-    $body += "</tr>"
+    $body += "</table><br/>Enjoy!"
     
+    $startDate = Get-Date (Get-Date).AddDays(-$days) -Format 'MMM d'
+    $endDate = Get-Date -Format 'MMM d'
+    
+    $credentials = Get-StoredCredential -Name $cred
+    
+    # If not otherwise specified, set the To address the same as the From
+    if ($EmailTo -eq 'default') {
+        $EmailTo = $credentials.UserName
+    }
+    $subject = "Plex Additions from $startDate-$endDate"
+    
+    Send-MailMessage -From $($credentials.UserName) -to $EmailTo -SmtpServer $SMTPserver -Port $SMTPport -UseSsl -Credential $credentials -Subject $subject -Body $body -BodyAsHtml
 }
-$body += "</table><br/>Enjoy!"
-
-$startDate = Get-Date (Get-Date).AddDays(-$days) -Format 'MMM d'
-$endDate = Get-Date -Format 'MMM d'
-
-$credentials = Get-StoredCredential -Name $cred
-
-# If not otherwise specified, set the To address the same as the From
-if ($EmailTo -eq 'default') {
-    $EmailTo = $credentials.UserName
-}
-$subject = "Plex Additions from $startDate-$endDate"
-
-Send-MailMessage -From $($credentials.UserName) -to $EmailTo -SmtpServer $SMTPserver -Port $SMTPport -UseSsl -Credential $credentials -Subject $subject -Body $body -BodyAsHtml
