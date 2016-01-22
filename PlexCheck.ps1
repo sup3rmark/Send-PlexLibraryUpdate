@@ -19,8 +19,7 @@ PS C:\>PlexCheck.ps1 -Url 10.0.0.100 -Port 12345 -Days 14 -EmailTo test@test.com
 To add credentials open up Control Panel>User Accounts>Credential Manager and click "Add a gereric credential". 
 The "Internet or network address" field will be the Name required by the Cred param (default: "PlexCheck").
 
-Requires StoredCredential.psm1 from https://gist.github.com/cdhunt/5729126,
-which was forked from https://gist.github.com/toburger/2947424, which in turn was adapted from
+Requires StoredCredential.psm1 from https://gist.github.com/toburger/2947424, which in turn was adapted from
 http://stackoverflow.com/questions/7162604/get-cached-credentials-in-powershell-from-windows-7-credential-manager
 
 #>
@@ -52,11 +51,11 @@ param(
 )
 
 #region Associated Files
-if (-not (Get-Module StoredCredential)) {
+if (-not (Get-Module Get-CredentialFromWindowsCredentialManager)) {
     Try {
-        Import-Module StoredCredential.psm1 -ErrorAction Stop
+        Import-Module Get-CredentialFromWindowsCredentialManager.psm1 -ErrorAction Stop
     } Catch {
-        Write-Host "Failed to load StoredCredential.psm1. Aborting."
+        Write-Host "Failed to load Get-CredentialFromWindowsCredentialManager.psm1. Aborting."
         Exit
     }
 }
