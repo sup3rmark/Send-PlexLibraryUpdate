@@ -5,4 +5,4 @@ Requirements:
 - Windows
 - Powershell
 - Credentials stored in Windows Credential Manager
-- Get-CredentialFromWindowsCredentialManager.ps1 from cdhunt.
+- Get-CredentialFromWindowsCredentialManager.ps1 from Tobias Burger: https://gist.github.com/toburger/2947424
