@@ -45,7 +45,13 @@ param(
     [int]$SMTPport = '587',
 
     # Specify the name used for the Credential Manager entry
-    [string]$Cred = 'PlexCheck'
+    [string]$Cred = 'PlexCheck',
+
+    # Specify the Library ID of any libraries you'd like to exclude
+    [int[]]$ExcludeLib = 0,
+
+    # Specify whether to prevent sending email if there are no additions
+    [switch]$PreventSendingEmptyList
 
 
 )
@@ -71,57 +77,153 @@ $imgPlex = "http://i.imgur.com/RyX9y3A.jpg"
 Invoke-WebRequest "$url`:$port/library/recentlyAdded/" -OutFile "$PSScriptRoot\library.xml"
 [xml]$library = Get-Content -Path "$PSScriptRoot\library.xml"
 
+# Grab those libraries!
 $movies = $library.SelectNodes("/MediaContainer/Video") |
     Where-Object {$_.addedAt -gt (Get-Date (Get-Date).AddDays(-$days) -UFormat "%s")} |
     Select-Object * |
     Sort-Object addedAt
 
-$body = "Hey there!<br/><br/>The movies listed below were added to the <a href=`"http://app.plex.tv/web/app`">Plex library</a> in the past $days days.<br/><br/>"
-$body += '<table style="width:100%">'
+$tvShows = $library.SelectNodes("/MediaContainer/Directory") |
+    Where-Object {$_.addedAt -gt (Get-Date (Get-Date).AddDays(-$days) -UFormat "%s")} |
+    Group-Object parentTitle
+
+# Initialize the counters and lists
+$movieCount = 0
+$movieList = "<h1>Movies:</h1><br/><br/>"
+$movieList += "<table style=`"width:100%`">"
+$tvCount = 0
+$tvList = "<h1>TV Seasons:</h1><br/><br/>"
+$tvList += "<table style=`"width:100%`">"
 
 if ($movies.count -gt 0) {
-    foreach ($movie in $movies){
-        $omdbURL = "omdbapi.com/?t=$($movie.title)&y=$($movie.year)&r=JSON"
-        $body += "<tr>"
-        $omdbResponse = ConvertFrom-JSON (Invoke-WebRequest $omdbURL).content
-        if ($omdbResponse.Response -eq "True") {
-            if ($omdbResponse.Poster -eq "N/A") {
-                # If the poster was unavailable, substitute a Plex logo
-                $imgURL = $imgPlex
-                $imgHeight = "150"
-            } else {
-                $imgURL = $omdbResponse.Poster
-                $imgHeight = "234"
+    foreach ($movie in $movies) {
+        # Easy peasy to grab the movie library
+        [int]$section = $($movie.librarySectionID)
+
+        # Make sure the movie's not in an excluded library
+        if ($movie.librarySectionID -notin $ExcludeLib){
+            $movieCount++
+
+            # Retrieve movie info from the Open Movie Database
+            $omdbURL = "omdbapi.com/?t=$($movie.title)&y=$($movie.year)&r=JSON"
+            $omdbResponse = ConvertFrom-JSON (Invoke-WebRequest $omdbURL).content
+
+            if ($omdbResponse.Response -eq "True") {
+                if ($omdbResponse.Poster -eq "N/A") {
+                    # If the poster was unavailable, substitute a Plex logo
+                    $imgURL = $imgPlex
+                    $imgHeight = "150"
+                } else {
+                    $imgURL = $omdbResponse.Poster
+                    $imgHeight = "234"
+                }
+                $movieList += "<tr><td><img src=`"$imgURL`" height=$($imgHeight)px width=150px></td>"
+                $movieList += "<td><li><a href=`"http://www.imdb.com/title/$($omdbResponse.imdbID)/`">$($movie.title)</a> ($($movie.year))</li>"
+                $movieList += "<ul><li><i>Genre:</i> $($omdbResponse.Genre)</li>"
+                $movieList += "<li><i>Rating:</i> $($omdbResponse.Rated)</li>"
+                $movieList += "<li><i>Runtime:</i> $($omdbResponse.Runtime)</li>"
+                $movieList += "<li><i>Director:</i> $($omdbResponse.Director)</li>"
+                $movieList += "<li><i>Plot:</i> $($omdbResponse.Plot)</li>"
+                $movieList += "<li><i>IMDB rating:</i> $($omdbResponse.imdbRating)/10</li>"
+                $movieList += "<li><i>Added:</i> $(Get-Date $epoch.AddSeconds($movie.addedAt) -Format 'MMMM d')</li></ul></td>"
             }
-            $body += "<td><img src=`"$imgURL`" height=$($imgHeight)px width=150px></td>"
-            $body += "<td><li><a href=`"http://www.imdb.com/title/$($omdbResponse.imdbID)/`">$($movie.title)</a> ($($movie.year))</li>"
-            $body += "<ul><li><i>Genre:</i> $($omdbResponse.Genre)</li>"
-            $body += "<li><i>Rating:</i> $($omdbResponse.Rated)</li>"
-            $body += "<li><i>Runtime:</i> $($omdbResponse.Runtime)</li>"
-            $body += "<li><i>Director:</i> $($omdbResponse.Director)</li>"
-            $body += "<li><i>Plot:</i> $($omdbResponse.Plot)</li>"
-            $body += "<li><i>IMDB rating:</i> $($omdbResponse.imdbRating)/10</li>"
-            $body += "<li><i>Added:</i> $(Get-Date $epoch.AddSeconds($movie.addedAt) -Format 'MMMM d')</li></ul></td>"
+            else {
+                # If the movie couldn't be found in the DB, fail gracefull
+                $movieList += "<td><img src=`"$imgPlex`" height=150px width=150px></td><td><li>$($movie.title)</a> ($($movie.year)) - no additional information</li></td>"
+            }
+            $movieList += "</tr>"
         }
-        else {
-            # If the movie couldn't be found in the DB, fail gracefull
-            $body += "<td><img src=`"$imgPlex`" height=150px width=150px></td><td><li>$($movie.title)</a> ($($movie.year)) - no additional information</li></td>"
+    }
+    $movieList += "</table><br/><br/>"
+}
+
+if ($tvShows.Count -gt 0) {
+    foreach ($show in $tvShows) {
+        # Due to how shows are nested, gotta dig deep to get the librarySectionID
+        if ($($show.group) -is [array]) {
+            [int]$section = $($show.Group)[0].librarySectionID
+        } else {
+            [int]$section = $($show.Group).librarySectionID
         }
-        $body += "</tr>"
-        
+
+        # Make sure the media we're parsing isn't in an excluded library
+        if (-not($ExcludeLib.Contains($section))){
+             # Count it!
+             $tvCount++
+
+             # Retrieve show info from the Open Movie Database
+             $omdbURL = "omdbapi.com/?t=$($show.name)&r=JSON"
+             $omdbResponse = ConvertFrom-JSON (Invoke-WebRequest $omdbURL).content
+
+             # Build the HTML
+             if ($omdbResponse.Response -eq "True") {
+                if ($omdbResponse.Poster -eq "N/A") {
+                    # If the poster was unavailable, substitute a Plex logo
+                    $imgURL = $imgPlex
+                    $imgHeight = "150"
+                } else {
+                    $imgURL = $omdbResponse.Poster
+                    $imgHeight = "234"
+                }
+                $tvList += "<tr><td><img src=`"$imgURL`" height=$($imgHeight)px width=150px></td>"
+                $tvList += "<td><li><a href=`"http://www.imdb.com/title/$($omdbResponse.imdbID)/`">$($show.name)</a></li>"
+                $tvList += "<ul><li><i>Genre:</i> $($omdbResponse.Genre)</li>"
+                $tvList += "<li><i>Rating:</i> $($omdbResponse.Rated)</li>"
+                $tvList += "<li><i>Plot:</i> $($omdbResponse.Plot)</li>"
+                $tvList += "<li><i>Newly added:</i><br/></li><ul>"
+                foreach ($season in ($show.Group | Sort-Object @{e={$_.index -as [int]}})){
+                    if ($($season.leafCount) -gt 1) {
+                        $plural = 's'
+                    } else {
+                        $plural = ''
+                    }
+                    $tvList += "<li>$($season.title) ($($season.leafCount) episode$($plural))</li>"
+                }
+                #$tvList += "<li><i>Added:</i> $(Get-Date $epoch.AddSeconds($movie.addedAt) -Format 'MMMM d')</li></ul></td>"
+            }
+            else {
+                # If the movie couldn't be found in the DB, fail gracefull
+                $tvList += "<tr><td><img src=`"$imgPlex`" height=150px width=150px></td><td><li>$($show.name)</a></li>"
+                            $tvList += "<td><li><a href=`"http://www.imdb.com/title/$($omdbResponse.imdbID)/`">$($show.name)</a></li>"
+                $tvList += "<li><i>Season:</i><br/></li><ul>"
+                foreach ($season in $show.Group){
+                    $tvList += "<li>$($season.title) ($($season.leafCount) episode(s))</li>"
+                }
+            }
+            $tvList += "</ul></ul></td></tr>"
+        }
     }
-    $body += "</table><br/>Enjoy!"
-    
-    $startDate = Get-Date (Get-Date).AddDays(-$days) -Format 'MMM d'
-    $endDate = Get-Date -Format 'MMM d'
-    
-    $credentials = Get-StoredCredential -Name $cred
-    
-    # If not otherwise specified, set the To address the same as the From
-    if ($EmailTo -eq 'default') {
-        $EmailTo = $credentials.UserName
+    $tvList += "</table><br/>"
+}
+
+
+
+if (($movieCount -eq 0) -AND ($tvCount -eq 0)) {
+    $body += "No movies or TV shows have been added to the Plex library in the past $days days. Sorry!"
+} else {
+    $body = "<h1>Hey there!</h1><br/>Here's the list of additions to my Plex library in the past $days days.<br/>"
+
+    if ($movieCount -gt 0) {
+        $body += $movieList
     }
-    $subject = "Plex Additions from $startDate-$endDate"
+
+    if ($tvCount -gt 0) {
+        $body += $tvList
+    }
+    $body += "Enjoy!"
+}
     
+$startDate = Get-Date (Get-Date).AddDays(-$days) -Format 'MMM d'
+$endDate = Get-Date -Format 'MMM d'
+    
+$credentials = Get-StoredCredential -Name $cred
+    
+# If not otherwise specified, set the To address the same as the From
+if ($EmailTo -eq 'default') {
+    $EmailTo = $credentials.UserName
+}
+$subject = "Plex Additions from $startDate-$endDate"
+
+if (-not($PreventSendingEmptyList -and (($movieCount+$tvCount) -eq 0))) {
     Send-MailMessage -From $($credentials.UserName) -to $EmailTo -SmtpServer $SMTPserver -Port $SMTPport -UseSsl -Credential $credentials -Subject $subject -Body $body -BodyAsHtml
 }
