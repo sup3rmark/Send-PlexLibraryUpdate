@@ -199,7 +199,7 @@ if ($tvShows.Count -gt 0) {
 
 
 if (($movieCount -eq 0) -AND ($tvCount -eq 0)) {
-    $body += "No movies or TV shows have been added to the Plex library in the past $days days. Sorry!"
+    $body = "No movies or TV shows have been added to the Plex library in the past $days days. Sorry!"
 } else {
     $body = "<h1>Hey there!</h1><br/>Here's the list of additions to my Plex library in the past $days days.<br/>"
 
