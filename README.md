@@ -1,5 +1,5 @@
 # PlexCheck
-A Powershell script to report on movies recently added to your Plex library.
+A Powershell script to report on movies recently added to your Plex library. It uses the Plex API as well as OMDBapi.com (the Open Movie Database) to fetch information on each movie.
 
 Requirements:
 - Windows
