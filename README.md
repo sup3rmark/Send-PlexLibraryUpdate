@@ -16,7 +16,7 @@ This should be relatively easy to set up for someone running their server on a W
 
         Set-ExecutionPolicy Unrestricted
 
-5. Store the credentials of the email address you want to send the email from in Windows Credential Manager. Instructions [here](http://windows.microsoft.com/en-us/windows7/store-passwords-certificates-and-other-credentials-for-automatic-logon). You should store them with the name "PlexCheck" to avoid having to specify a credential name when running the script.
+5. Store the credentials of the email address you want to send the email from in Windows Credential Manager. Instructions [here](http://windows.microsoft.com/en-us/windows7/store-passwords-certificates-and-other-credentials-for-automatic-logon). You should store them with "PlexCheck" as the "Internet or network address" value to avoid having to specify a credential name when running the script. For username and password, enter the credentials for the email address you want to send the email as.
 6. Run the script! You can run from a Powershell prompt, or by right-clicking and selecting *Run*.
 
 Default behavior:
