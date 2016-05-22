@@ -5,7 +5,7 @@ Requirements:
 - Windows
 - Powershell
 - Credentials stored in Windows Credential Manager
-- Get-CredentialFromWindowsCredentialManager.ps1 from Tobias Burger: https://gist.github.com/toburger/2947424
+- [Get-CredentialFromWindowsCredentialManager.ps1 from 40a](https://gist.github.com/40a/7892466)
 
 This should be relatively easy to set up for someone running their server on a Windows machine, but give me a second and I'll have a write-up for those who might not know what to do.
 
