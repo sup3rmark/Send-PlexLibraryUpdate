@@ -10,10 +10,10 @@ This list will include information pulled dynamically from OMDBapi.com, the Open
 See param block for descriptions of available parameters
 
 .EXAMPLE
-PS C:\>PlexCheck.ps1
+PS C:\>PlexCheck.ps1 -Token xx11xx11xx1100xx0x01
 
 .EXAMPLE
-PS C:\>PlexCheck.ps1 -Url 10.0.0.100 -Port 12345 -Days 14 -EmailTo test@test.com -Cred StoredCredential
+PS C:\>PlexCheck.ps1 -Token xx11xx11xx1100xx0x01 -Url 10.0.0.100 -Port 12345 -Days 14 -EmailTo test@test.com -Cred StoredCredential
 
 .NOTES
 To add credentials open up Control Panel>User Accounts>Credential Manager and click "Add a gereric credential". 
@@ -24,6 +24,11 @@ http://stackoverflow.com/questions/7162604/get-cached-credentials-in-powershell-
 
 #>
 param(
+    # Required: specify your Plex Token
+    #   To find your token, check here: https://support.plex.tv/hc/en-us/articles/204059436-Finding-your-account-token-X-Plex-Token
+    [Parameter(Mandatory = $true)]
+    [string]$Token,
+
     # Optionally specify IP of the server we want to connect to
     [string]$Url = 'http://127.0.0.1',
 
@@ -72,19 +77,17 @@ $epoch = Get-Date '1/1/1970'
 $imgPlex = "http://i.imgur.com/RyX9y3A.jpg"
 #endregion
 
-
-
-Invoke-WebRequest "$url`:$port/library/recentlyAdded/" -OutFile "$PSScriptRoot\library.xml"
-[xml]$library = Get-Content -Path "$PSScriptRoot\library.xml"
+$response = Invoke-WebRequest "$url`:$port/library/recentlyAdded/?X-Plex-Token=$Token" -Headers @{"accept"="application/json"}
+$jsonlibrary = ConvertFrom-JSON $response.Content
 
 # Grab those libraries!
-$movies = $library.SelectNodes("/MediaContainer/Video") |
-    Where-Object {$_.addedAt -gt (Get-Date (Get-Date).AddDays(-$days) -UFormat "%s")} |
+$movies = $jsonLibrary._children |
+    Where-Object {$_.type -eq 'movie' -AND $_.addedAt -gt (Get-Date (Get-Date).AddDays(-$days) -UFormat "%s")} |
     Select-Object * |
     Sort-Object addedAt
 
-$tvShows = $library.SelectNodes("/MediaContainer/Directory") |
-    Where-Object {$_.addedAt -gt (Get-Date (Get-Date).AddDays(-$days) -UFormat "%s")} |
+$tvShows = $jsonLibrary._children |
+    Where-Object {$_.type -eq 'season' -AND $_.addedAt -gt (Get-Date (Get-Date).AddDays(-$days) -UFormat "%s")} |
     Group-Object parentTitle
 
 # Initialize the counters and lists
@@ -95,11 +98,8 @@ $tvCount = 0
 $tvList = "<h1>TV Seasons:</h1><br/><br/>"
 $tvList += "<table style=`"width:100%`">"
 
-if ($movies.count -gt 0) {
+if ($($movies | Measure-Object).count -gt 0) {
     foreach ($movie in $movies) {
-        # Easy peasy to grab the movie library
-        [int]$section = $($movie.librarySectionID)
-
         # Make sure the movie's not in an excluded library
         if ($movie.librarySectionID -notin $ExcludeLib){
             $movieCount++
@@ -107,6 +107,18 @@ if ($movies.count -gt 0) {
             # Retrieve movie info from the Open Movie Database
             $omdbURL = "omdbapi.com/?t=$($movie.title)&y=$($movie.year)&r=JSON"
             $omdbResponse = ConvertFrom-JSON (Invoke-WebRequest $omdbURL).content
+
+            # If there was no result, try searching for the previous year (OMDB/The Movie Database quirkiness)
+            if ($omdbResponse.Response -eq "False") {
+                $omdbURL = "omdbapi.com/?t=$($movie.title)&y=$($($movie.year)-1)&r=JSON"
+                $omdbResponse = ConvertFrom-JSON (Invoke-WebRequest $omdbURL).content
+            }
+
+            # If there was STILL no result, try searching for the *next* year
+            if ($omdbResponse.Response -eq "False") {
+                $omdbURL = "omdbapi.com/?t=$($movie.title)&y=$($($movie.year)+1)&r=JSON"
+                $omdbResponse = ConvertFrom-JSON (Invoke-WebRequest $omdbURL).content
+            }
 
             if ($omdbResponse.Response -eq "True") {
                 if ($omdbResponse.Poster -eq "N/A") {
@@ -128,7 +140,7 @@ if ($movies.count -gt 0) {
                 $movieList += "<li><i>Added:</i> $(Get-Date $epoch.AddSeconds($movie.addedAt) -Format 'MMMM d')</li></ul></td>"
             }
             else {
-                # If the movie couldn't be found in the DB, fail gracefull
+                # If the movie couldn't be found in the DB even with the one-year buffer, fail gracefully
                 $movieList += "<td><img src=`"$imgPlex`" height=150px width=150px></td><td><li>$($movie.title)</a> ($($movie.year)) - no additional information</li></td>"
             }
             $movieList += "</tr>"
@@ -137,7 +149,7 @@ if ($movies.count -gt 0) {
     $movieList += "</table><br/><br/>"
 }
 
-if ($tvShows.Count -gt 0) {
+if ($($tvShows | Measure-Object).Count -gt 0) {
     foreach ($show in $tvShows) {
         # Due to how shows are nested, gotta dig deep to get the librarySectionID
         if ($($show.group) -is [array]) {
@@ -170,19 +182,19 @@ if ($tvShows.Count -gt 0) {
                 $tvList += "<ul><li><i>Genre:</i> $($omdbResponse.Genre)</li>"
                 $tvList += "<li><i>Rating:</i> $($omdbResponse.Rated)</li>"
                 $tvList += "<li><i>Plot:</i> $($omdbResponse.Plot)</li>"
-                $tvList += "<li><i>Newly added:</i><br/></li><ul>"
+                $tvList += "<li><i>Now in library:</i><br/></li><ul>"
                 foreach ($season in ($show.Group | Sort-Object @{e={$_.index -as [int]}})){
                     if ($($season.leafCount) -gt 1) {
                         $plural = 's'
                     } else {
                         $plural = ''
                     }
-                    $tvList += "<li>$($season.title) ($($season.leafCount) episode$($plural))</li>"
+                    $tvList += "<li>$($season.title) - $($season.leafCount) episode$($plural)</li>"
                 }
                 #$tvList += "<li><i>Added:</i> $(Get-Date $epoch.AddSeconds($movie.addedAt) -Format 'MMMM d')</li></ul></td>"
             }
             else {
-                # If the movie couldn't be found in the DB, fail gracefull
+                # If the series couldn't be found in the DB, fail gracefully
                 $tvList += "<tr><td><img src=`"$imgPlex`" height=150px width=150px></td><td><li>$($show.name)</a></li>"
                             $tvList += "<td><li><a href=`"http://www.imdb.com/title/$($omdbResponse.imdbID)/`">$($show.name)</a></li>"
                 $tvList += "<li><i>Season:</i><br/></li><ul>"
