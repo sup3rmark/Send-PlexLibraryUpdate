@@ -5,18 +5,18 @@ Requirements:
 - Windows
 - Powershell
 - Credentials stored in Windows Credential Manager
-- Get-CredentialFromWindowsCredentialManager.ps1 from Tobias Burger: https://gist.github.com/toburger/2947424
+- [Get-CredentialFromWindowsCredentialManager.ps1 from 40a](https://gist.github.com/40a/7892466)
 
 This should be relatively easy to set up for someone running their server on a Windows machine, but give me a second and I'll have a write-up for those who might not know what to do.
 
 1. Download PlexCheck.ps1 to your computer from my link above.
-2. Download [Get-CredentialFromWindowsCredentialManager.ps1 from Tobias Burger](https://gist.github.com/toburger/2947424)
+2. Download [Get-CredentialFromWindowsCredentialManager.ps1 from 40a](https://gist.github.com/40a/7892466) (this forked version is properly set up as a module that contains the Get-StoredCredential function; the original from Tobias Burger will not work as it doesn't have the function in it)
 3. Change the .ps1 extension on Get-CredentialFromWindowsCredentialManager.ps1 to .psm1, and save it to C:\Users\[username]\Documents\WindowsPowershell\Modules\Get-CredentialFromWindowsCredentialManager\.
 4. Open a Powershell prompt and run the command
 
         Set-ExecutionPolicy Unrestricted
 
-5. Store the credentials of the email address you want to send the email from in Windows Credential Manager. Instructions [here](http://windows.microsoft.com/en-us/windows7/store-passwords-certificates-and-other-credentials-for-automatic-logon). You should store them with the name "PlexCheck" to avoid having to specify a credential name when running the script.
+5. Store the credentials of the email address you want to send the email from in Windows Credential Manager. Instructions [here](http://windows.microsoft.com/en-us/windows7/store-passwords-certificates-and-other-credentials-for-automatic-logon). You should store them with "PlexCheck" as the "Internet or network address" value to avoid having to specify a credential name when running the script. For username and password, enter the credentials for the email address you want to send the email as.
 6. Run the script! You can run from a Powershell prompt, or by right-clicking and selecting *Run*.
 
 Default behavior:
