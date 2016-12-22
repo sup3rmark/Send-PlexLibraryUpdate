@@ -56,7 +56,10 @@ param(
     [int[]]$ExcludeLib = 0,
 
     # Specify whether to prevent sending email if there are no additions
-    [switch]$PreventSendingEmptyList
+    [switch]$PreventSendingEmptyList,
+
+    # Specify whether to omit the Plex Server version number from the email
+    [switch]$OmitVersionNumber
 
 
 )
@@ -81,12 +84,12 @@ $response = Invoke-WebRequest "$url`:$port/library/recentlyAdded/?X-Plex-Token=$
 $jsonlibrary = ConvertFrom-JSON $response.Content
 
 # Grab those libraries!
-$movies = $jsonLibrary._children |
+$movies = $jsonLibrary.MediaContainer.Metadata |
     Where-Object {$_.type -eq 'movie' -AND $_.addedAt -gt (Get-Date (Get-Date).AddDays(-$days) -UFormat "%s")} |
     Select-Object * |
     Sort-Object addedAt
 
-$tvShows = $jsonLibrary._children |
+$tvShows = $jsonLibrary.MediaContainer.Metadata |
     Where-Object {$_.type -eq 'season' -AND $_.addedAt -gt (Get-Date (Get-Date).AddDays(-$days) -UFormat "%s")} |
     Group-Object parentTitle
 
@@ -224,7 +227,11 @@ if (($movieCount -eq 0) -AND ($tvCount -eq 0)) {
     }
     $body += "Enjoy!"
 }
-    
+
+if (-not $OmitVersionNumber) {
+    $body += "<br><br><br><br><p align = right><font size = 1 color = Gray>Plex Version: $((Invoke-RestMethod "$url`:$port/?X-Plex-Token=$Token" -Headers @{"accept"="application/json"}).mediaContainer.version)</p></font>"
+}
+
 $startDate = Get-Date (Get-Date).AddDays(-$days) -Format 'MMM d'
 $endDate = Get-Date -Format 'MMM d'
     
