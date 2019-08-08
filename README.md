@@ -1,4 +1,4 @@
-# PlexCheck
+# Send-PlexLibraryUpdate.ps1
 A Powershell script to report on movies recently added to your Plex library. It uses the Plex API as well as OMDBapi.com (the Open Movie Database) to fetch information on each movie.
 
 Requirements:
@@ -10,7 +10,7 @@ Requirements:
 
 Instructions:
 
-1. Download PlexCheck.ps1 to your computer from the link above.
+1. Download Send-PlexLibraryUpdate.ps1 to your computer from the link above.
 2. Install the CredentialManager module (`Install-Module CredentialManager` should do the trick)
 3. Open a Powershell prompt and run the command
 
@@ -28,7 +28,7 @@ New-StoredCredential -Target PlexCheck -UserName [Email address] -Password [Emai
 
 Default behavior:
 
-    .\PlexCheck.ps1
+    .\Send-PlexLibraryUpdate.ps1
 
 This will run the script with default values:
 
@@ -42,6 +42,6 @@ This will run the script with default values:
 
 Here's an example of how to run it with all the values changed:
 
-    .\PlexCheck.ps1 -cred foo -url 10.0.0.100 -port 12345 -days 14 -emailTo 'test@email.com' -smtpServer 'smtp.server.com' -smtpPort 132
+    .\Send-PlexLibraryUpdate.ps1 -cred foo -url 10.0.0.100 -port 12345 -days 14 -emailTo 'test@email.com' -smtpServer 'smtp.server.com' -smtpPort 132
 
 Please let me know if you have any questions, comments, or suggestions!
