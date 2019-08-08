@@ -2,22 +2,29 @@
 A Powershell script to report on movies recently added to your Plex library. It uses the Plex API as well as OMDBapi.com (the Open Movie Database) to fetch information on each movie.
 
 Requirements:
-- Windows
-- Powershell
-- Credentials stored in Windows Credential Manager
-- [Get-CredentialFromWindowsCredentialManager.ps1 from 40a](https://gist.github.com/40a/7892466)
+- Plex
+- TVDB account and API token (https://www.themoviedb.org/settings/api)
+- An email account and its SMTP server address/port (this is already filled in for Gmail, but to send from a Gmail account, "Access for less secure apps" must be turned *on*; instructions [here](https://support.google.com/accounts/answer/6010255?hl=en))
+- CredentialManager module
+- Tokens and SMTP email credentials stored in Windows Credential Manager
 
-This should be relatively easy to set up for someone running their server on a Windows machine, but give me a second and I'll have a write-up for those who might not know what to do.
+Instructions:
 
-1. Download PlexCheck.ps1 to your computer from my link above.
-2. Download [Get-CredentialFromWindowsCredentialManager.ps1 from 40a](https://gist.github.com/40a/7892466) (this forked version is properly set up as a module that contains the Get-StoredCredential function; the original from Tobias Burger will not work as it doesn't have the function in it)
-3. Change the .ps1 extension on Get-CredentialFromWindowsCredentialManager.ps1 to .psm1, and save it to C:\Users\[username]\Documents\WindowsPowershell\Modules\Get-CredentialFromWindowsCredentialManager\.
-4. Open a Powershell prompt and run the command
+1. Download PlexCheck.ps1 to your computer from the link above.
+2. Install the CredentialManager module (`Install-Module CredentialManager` should do the trick)
+3. Open a Powershell prompt and run the command
 
         Set-ExecutionPolicy Unrestricted
 
-5. Store the credentials of the email address you want to send the email from in Windows Credential Manager. Instructions [here](http://windows.microsoft.com/en-us/windows7/store-passwords-certificates-and-other-credentials-for-automatic-logon). You should store them with "PlexCheck" as the "Internet or network address" value to avoid having to specify a credential name when running the script. For username and password, enter the credentials for the email address you want to send the email as.
-6. Run the script! You can run from a Powershell prompt, or by right-clicking and selecting *Run*.
+4. Store the credentials of the email address you want to send the email from in Windows Credential Manager using the CredentialManager module:
+
+```powershell
+Install-Module CredentialManager
+New-StoredCredential -Target plexToken -UserName plex -Password [Plex token] -Type Generic -Persist LocalMachine
+New-StoredCredential -Target tmdb.org -UserName tmdb -Password [TMDB token] -Type Generic -Persist LocalMachine
+New-StoredCredential -Target PlexCheck -UserName [Email address] -Password [Email password] -Type Generic -Persist LocalMachine
+```
+5. Run the script! You can run from a Powershell prompt, or by right-clicking and selecting *Run*.
 
 Default behavior:
 
@@ -29,7 +36,7 @@ This will run the script with default values:
 - It uses the default Plex port, 32400.
 - The sender email address will be what's defined in your credentials in Windows Credential Manager.
 - The to address, unless otherwise specified, will be the same as the sender address. Change it at run-time.
-- This defaults to Gmail's SMTP server settings, but that can be overridden with parameters. To send from a Gmail account, "Access for less secure apps" must be turned *on*. Instructions [here](https://support.google.com/accounts/answer/6010255?hl=en).
+- This defaults to Gmail's SMTP server settings, but that can be overridden with parameters.
 - This will send over SSL, and this can't be overridden. Just do it.
 - This defaults to a 7-day lookback period, but that can be changed, if that's what you're into.
 
@@ -37,4 +44,4 @@ Here's an example of how to run it with all the values changed:
 
     .\PlexCheck.ps1 -cred foo -url 10.0.0.100 -port 12345 -days 14 -emailTo 'test@email.com' -smtpServer 'smtp.server.com' -smtpPort 132
 
-This is the first time I've publicly shared a script I wrote, so please let me know if you have any questions, comments, or suggestions!
+Please let me know if you have any questions, comments, or suggestions!
