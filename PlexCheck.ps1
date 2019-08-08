@@ -10,25 +10,24 @@ This list will include information pulled dynamically from OMDBapi.com, the Open
 See param block for descriptions of available parameters
 
 .EXAMPLE
-PS C:\>PlexCheck.ps1 -Token xx11xx11xx1100xx0x01
+PS C:\>PlexCheck.ps1
 
 .EXAMPLE
-PS C:\>PlexCheck.ps1 -Token xx11xx11xx1100xx0x01 -Url 10.0.0.100 -Port 12345 -Days 14 -EmailTo test@test.com -Cred StoredCredential
+PS C:\>PlexCheck.ps1 -Url 10.0.0.100 -Port 12345 -Days 14 -EmailTo test@test.com -ExcludeLib 11 -PreventSendingEmptyList -OmitVersionNumber
 
 .NOTES
-To add credentials open up Control Panel>User Accounts>Credential Manager and click "Add a gereric credential". 
-The "Internet or network address" field will be the Name required by the Cred param (default: "PlexCheck").
+    Requires CredentialManager module.
 
-Requires StoredCredential.psm1 from https://gist.github.com/toburger/2947424, which in turn was adapted from
-http://stackoverflow.com/questions/7162604/get-cached-credentials-in-powershell-from-windows-7-credential-manager
+    > Install-Module CredentialManager
+
+    > New-StoredCredential -Target plexToken -UserName plex -Password [Plex token] -Type Generic -Persist LocalMachine
+    > New-StoredCredential -Target tmdb.org -UserName tmdb -Password [TMDB token] -Type Generic -Persist LocalMachine
+    > New-StoredCredential -Target PlexCheck -UserName [Email address] -Password [Email password] -Type Generic -Persist LocalMachine
+
+    To find your Plex token, check here: https://support.plex.tv/hc/en-us/articles/204059436-Finding-your-account-token-X-Plex-Token
 
 #>
 param(
-    # Required: specify your Plex Token
-    #   To find your token, check here: https://support.plex.tv/hc/en-us/articles/204059436-Finding-your-account-token-X-Plex-Token
-    [Parameter(Mandatory = $true)]
-    [string]$Token,
-
     # Optionally specify IP of the server we want to connect to
     [string]$Url = 'http://127.0.0.1',
 
@@ -49,108 +48,148 @@ param(
     # Specify the SMTP server's SSL port
     [int]$SMTPport = '587',
 
-    # Specify the name used for the Credential Manager entry
-    [string]$Cred = 'PlexCheck',
-
     # Specify the Library ID of any libraries you'd like to exclude
-    [int[]]$ExcludeLib = 0,
+    [int[]]$ExcludeLib = @(),
 
     # Specify whether to prevent sending email if there are no additions
     [switch]$PreventSendingEmptyList,
 
     # Specify whether to omit the Plex Server version number from the email
     [switch]$OmitVersionNumber
-
-
 )
 
-#region Associated Files
-if (-not (Get-Module Get-CredentialFromWindowsCredentialManager)) {
+#region import credentials
+if (-not (Get-Module CredentialManager)) {
     Try {
-        Import-Module Get-CredentialFromWindowsCredentialManager.psm1 -ErrorAction Stop
+        Import-Module CredentialManager -ErrorAction Stop
     } Catch {
-        Write-Host "Failed to load Get-CredentialFromWindowsCredentialManager.psm1. Aborting."
-        Exit
+        Write-Host "Failed to load CredentialManager. Aborting."
+        Throw $_.Exception
     }
 }
+
+Try {
+    $tmdbToken = (Get-StoredCredential -Target tmdb.org -ErrorAction Stop).GetNetworkCredential().Password
+    if (-not $tmdbToken) {
+        Throw "No TMDB token found."
+    }
+    Write-Verbose "Retrieved TMDB token."
+}
+Catch {
+    Write-Error "Failed to retrieve TMDB token."
+    Throw $_.Exception
+}
+
+Try {
+    $plexToken = (Get-StoredCredential -Target PlexToken -ErrorAction Stop).GetNetworkCredential().Password
+    if (-not $plexToken) {
+        Throw "No Plex token found."
+    }
+    Write-Verbose "Retrieved Plex token."
+}
+Catch {
+    Write-Error "Failed to retrieve Plex token."
+    Throw $_.Exception
+}
+
+Try {
+    $emailCreds = Get-StoredCredential -Target PlexCheck -ErrorAction Stop
+    if (-not $emailCreds) {
+        Throw "No email credentials found."
+    }
+    Write-Verbose "Retrieved email credentials."
+}
+Catch {
+    Throw $_.Exception
+}
+
 #endregion
 
 #region Declarations
 $epoch = Get-Date '1/1/1970'
+$startDate = Get-Date (Get-Date).AddDays(-$days) -UFormat "%s"
 $imgPlex = "http://i.imgur.com/RyX9y3A.jpg"
+$searchURL = "https://api.themoviedb.org/3/find"
+$imdbIDformat = [Regex]::new('tt\d{7,8}')
+$tvdbIDformat = [Regex]::new('[1-9]\d*')
 #endregion
 
-$response = Invoke-WebRequest "$url`:$port/library/recentlyAdded/?X-Plex-Token=$Token" -Headers @{"accept"="application/json"}
-$jsonlibrary = ConvertFrom-JSON $response.Content
+$response = Invoke-RestMethod "$url`:$port/library/recentlyAdded/?X-Plex-Token=$plexToken" -Headers @{"accept"="application/json"} | Select-Object -ExpandProperty MediaContainer | Select-Object -ExpandProperty Metadata
 
 # Grab those libraries!
-$movies = $jsonLibrary.MediaContainer.Metadata |
-    Where-Object {$_.type -eq 'movie' -AND $_.addedAt -gt (Get-Date (Get-Date).AddDays(-$days) -UFormat "%s")} |
+$movies = $response |
+    Where-Object {$_.type -eq 'movie' -AND $_.addedAt -gt $startDate} |
     Select-Object * |
     Sort-Object addedAt
 
-$tvShows = $jsonLibrary.MediaContainer.Metadata |
-    Where-Object {$_.type -eq 'season' -AND $_.addedAt -gt (Get-Date (Get-Date).AddDays(-$days) -UFormat "%s")} |
+$tvShows = $response |
+    Where-Object {$_.type -eq 'season' -AND $_.addedAt -gt $startDate} |
     Group-Object parentTitle
 
 # Initialize the counters and lists
 $movieCount = 0
 $movieList = "<h1>Movies:</h1><br/><br/>"
 $movieList += "<table style=`"width:100%`">"
-$tvCount = 0
-$tvList = "<h1>TV Seasons:</h1><br/><br/>"
-$tvList += "<table style=`"width:100%`">"
 
 if ($($movies | Measure-Object).count -gt 0) {
-    foreach ($movie in $movies) {
-        # Make sure the movie's not in an excluded library
-        if ($movie.librarySectionID -notin $ExcludeLib){
-            $movieCount++
-
-            # Retrieve movie info from the Open Movie Database
-            $omdbURL = "omdbapi.com/?t=$($movie.title)&y=$($movie.year)&r=JSON"
-            $omdbResponse = ConvertFrom-JSON (Invoke-WebRequest $omdbURL).content
-
-            # If there was no result, try searching for the previous year (OMDB/The Movie Database quirkiness)
-            if ($omdbResponse.Response -eq "False") {
-                $omdbURL = "omdbapi.com/?t=$($movie.title)&y=$($($movie.year)-1)&r=JSON"
-                $omdbResponse = ConvertFrom-JSON (Invoke-WebRequest $omdbURL).content
-            }
-
-            # If there was STILL no result, try searching for the *next* year
-            if ($omdbResponse.Response -eq "False") {
-                $omdbURL = "omdbapi.com/?t=$($movie.title)&y=$($($movie.year)+1)&r=JSON"
-                $omdbResponse = ConvertFrom-JSON (Invoke-WebRequest $omdbURL).content
-            }
-
-            if ($omdbResponse.Response -eq "True") {
-                if ($omdbResponse.Poster -eq "N/A") {
-                    # If the poster was unavailable, substitute a Plex logo
-                    $imgURL = $imgPlex
-                    $imgHeight = "150"
-                } else {
-                    $imgURL = $omdbResponse.Poster
-                    $imgHeight = "234"
-                }
-                $movieList += "<tr><td><img src=`"$imgURL`" height=$($imgHeight)px width=150px></td>"
-                $movieList += "<td><li><a href=`"http://www.imdb.com/title/$($omdbResponse.imdbID)/`">$($movie.title)</a> ($($movie.year))</li>"
-                $movieList += "<ul><li><i>Genre:</i> $($omdbResponse.Genre)</li>"
-                $movieList += "<li><i>Rating:</i> $($omdbResponse.Rated)</li>"
-                $movieList += "<li><i>Runtime:</i> $($omdbResponse.Runtime)</li>"
-                $movieList += "<li><i>Director:</i> $($omdbResponse.Director)</li>"
-                $movieList += "<li><i>Plot:</i> $($omdbResponse.Plot)</li>"
-                $movieList += "<li><i>IMDB rating:</i> $($omdbResponse.imdbRating)/10</li>"
-                $movieList += "<li><i>Added:</i> $(Get-Date $epoch.AddSeconds($movie.addedAt) -Format 'MMMM d')</li></ul></td>"
-            }
-            else {
-                # If the movie couldn't be found in the DB even with the one-year buffer, fail gracefully
-                $movieList += "<td><img src=`"$imgPlex`" height=150px width=150px></td><td><li>$($movie.title)</a> ($($movie.year)) - no additional information</li></td>"
-            }
-            $movieList += "</tr>"
+    foreach ($movie in $movies | Where-Object {$_.librarySectionID -notin $ExcludeLib}) {
+        # TMDB rate-limits. Currently 40 requests every 10 seconds, so sleep 10 seconds every 15 movies to be safe (2 calls per movie)
+        # https://developers.themoviedb.org/3/getting-started/request-rate-limiting
+        if ($movieCount -gt 1 -AND $movieCount%15 -eq 0) {
+            Write-Verbose "On movie $movieCount, waiting 10 seconds..."
+            Start-Sleep -Seconds 10
         }
+
+        $movieCount++
+
+        Write-Verbose "Looking up $($movie.title) ($movieCount / $($movies | Measure-Object | Select-Object -ExpandProperty Count))."
+
+        # Retrieve movie info from The Movie Database
+        $simpleResponse = (Invoke-RestMethod "$searchURL/$($imdbIDformat.Matches($movie.guid).value)?api_key=$tmdbToken&language=en-US&external_source=imdb_id").movie_results
+
+        # Assuming we have a valid response, pull detailed info on the movie
+        if ($simpleResponse.id) {
+            $detailedResponse = (Invoke-RestMethod "https://api.themoviedb.org/3/movie/$($simpleResponse.id)?api_key=$tmdbToken&language=en-US")
+        }
+
+        if ($detailedResponse.Title) {
+            if ($detailedResponse.poster_path) {
+                $movieList += "<tr><td><img src=`"https://image.tmdb.org/t/p/w154$($detailedResponse.poster_path)`"</td>"
+            } else {
+                # If the poster was unavailable, substitute a Plex logo
+                $movieList += "<tr><td><img src=`"$imgPlex`" height=154px width=154px></td>"
+            }
+            $movieList += "<td><li><a href=`"http://www.imdb.com/title/$($detailedResponse.imdb_ID)/`">$($detailedResponse.title)</a> ($(($detailedResponse.release_date).split('-')[0]))</li>"
+            if($detailedResponse.Genres.count -gt 1) {
+                $movieList += "<li><i>Genres:</i> $($detailedResponse.Genres.name -join ', ')</li>"
+            } elseif ($detailedResponse.Genres.count -eq 1) {
+                $movieList += "<li><i>Genre:</i> $($detailedResponse.Genres.name)</i>"
+            }
+            $movieList += "<li><i>Rating:</i> $($movie.contentRating)</li>"
+            $movieList += "<li><i>Runtime:</i> $($detailedResponse.runtime) minutes</li>"
+            if($movie.role.count -gt 1) {
+                $movieList += "<li><i>Stars:</i> $($movie.role.tag -join ', ')</li>"
+            } elseif ($movie.role.count -eq 1) {
+                $movieList += "<li><i>Star:</i> $($movie.role.tag)</i>"
+            }
+            $movieList += "<li><i>Plot:</i> $($movie.summary)</li>"
+            $movieList += "<li><i>IMDB rating:</i> $(($detailedResponse.vote_average).toString("#.#"))/10</li>"
+            $movieList += "<li><i>Added:</i> $(Get-Date $epoch.AddSeconds($movie.addedAt) -Format 'MMMM d')</li></ul></td>"
+        }
+        else {
+            # If the movie couldn't be found in the DB even with the one-year buffer, fail gracefully
+            $movieList += "<tr><td><img src=`"$imgPlex`" height=150px width=150px></td><td><li>$($movie.title)</a> ($($movie.year)) - no additional information</li></td>"
+        }
+        $movieList += "</tr>"
+
+        Clear-Variable simpleResponse, detailedResponse
     }
     $movieList += "</table><br/><br/>"
 }
+
+$tvCount = 0
+$tvList = "<h1>TV Seasons:</h1><br/><br/>"
+$tvList += "<table style=`"width:100%`">"
 
 if ($($tvShows | Measure-Object).Count -gt 0) {
     foreach ($show in $tvShows) {
@@ -163,54 +202,61 @@ if ($($tvShows | Measure-Object).Count -gt 0) {
 
         # Make sure the media we're parsing isn't in an excluded library
         if (-not($ExcludeLib.Contains($section))){
-             # Count it!
-             $tvCount++
+            if ($movieCount -gt 1 -AND $movieCount%15 -eq 0) {
+                Write-Verbose "On movie $movieCount, waiting 10 seconds..."
+                Start-Sleep -Seconds 10
+            }
 
-             # Retrieve show info from the Open Movie Database
-             $omdbURL = "omdbapi.com/?t=$($show.name)&r=JSON"
-             $omdbResponse = ConvertFrom-JSON (Invoke-WebRequest $omdbURL).content
+            # Count it!
+            $tvCount++
 
-             # Build the HTML
-             if ($omdbResponse.Response -eq "True") {
-                if ($omdbResponse.Poster -eq "N/A") {
-                    # If the poster was unavailable, substitute a Plex logo
-                    $imgURL = $imgPlex
-                    $imgHeight = "150"
+            $tvdbID = ($tvdbIDformat.matches($show.group.guid).value)[0]
+
+            Write-Verbose "Looking up $($show.name) ($tvCount / $($tvShows | Measure-Object | Select-Object -ExpandProperty Count))."
+
+            # Retrieve movie info from The Movie Database
+            $simpleResponse = (Invoke-RestMethod "$searchURL/$tvdbID`?api_key=$tmdbToken&language=en-US&external_source=tvdb_id").tv_results
+
+            # Assuming we have a valid response, pull detailed info on the movie
+            if ($simpleResponse.id) {
+                $detailedResponse = (Invoke-RestMethod "https://api.themoviedb.org/3/tv/$($simpleResponse.id)?api_key=$tmdbToken&language=en-US")
+                $contentRating = (Invoke-RestMethod "https://api.themoviedb.org/3/tv/$($simpleResponse.id)/content_ratings?api_key=$tmdbToken&language=en-US").Results | Where-Object {$_.iso_3166_1 -eq 'US'} | Select-Object -ExpandProperty Rating
+                $imdbID = (Invoke-RestMethod "https://api.themoviedb.org/3/tv/$($simpleResponse.id)/external_ids?api_key=$tmdbToken&language=en-US").imdb_id
+            }
+
+            if ($detailedResponse.id) {
+                if ($detailedResponse.poster_path) {
+                    $tvList += "<tr><td><img src=`"https://image.tmdb.org/t/p/w154$($detailedResponse.poster_path)`"</td>"
                 } else {
-                    $imgURL = $omdbResponse.Poster
-                    $imgHeight = "234"
+                    # If the poster was unavailable, substitute a Plex logo
+                    $tvList += "<tr><td><img src=`"$imgPlex`" height=154px width=154px></td>"
                 }
-                $tvList += "<tr><td><img src=`"$imgURL`" height=$($imgHeight)px width=150px></td>"
-                $tvList += "<td><li><a href=`"http://www.imdb.com/title/$($omdbResponse.imdbID)/`">$($show.name)</a></li>"
-                $tvList += "<ul><li><i>Genre:</i> $($omdbResponse.Genre)</li>"
-                $tvList += "<li><i>Rating:</i> $($omdbResponse.Rated)</li>"
-                $tvList += "<li><i>Plot:</i> $($omdbResponse.Plot)</li>"
-                $tvList += "<li><i>Now in library:</i><br/></li><ul>"
+                $tvList += "<td><li><a href=`"http://www.imdb.com/title/$imdbID/`">$($show.name)</a></li>"
+                if ($detailedResponse.genres) {$tvList += "<ul><li><i>Genre:</i> $($detailedResponse.genres.name -join ", ")</li>"}
+                if ($contentRating) {$tvList += "<li><i>Rating:</i> $contentRating</li>"}
+                $tvList += "<li><i>Plot:</i> $($detailedResponse.overview)</li>"
+                $tvList += "<li><i>Now available:</i><br/></li><ul>"
                 foreach ($season in ($show.Group | Sort-Object @{e={$_.index -as [int]}})){
-                    if ($($season.leafCount) -gt 1) {
-                        $plural = 's'
-                    } else {
-                        $plural = ''
-                    }
-                    $tvList += "<li>$($season.title) - $($season.leafCount) episode$($plural)</li>"
+                    $tvList += "<li>$($season.title): $($season.leafCount) episode$(if ($season.leafCount -gt 1){"s"})</li>"
                 }
-                #$tvList += "<li><i>Added:</i> $(Get-Date $epoch.AddSeconds($movie.addedAt) -Format 'MMMM d')</li></ul></td>"
             }
             else {
                 # If the series couldn't be found in the DB, fail gracefully
                 $tvList += "<tr><td><img src=`"$imgPlex`" height=150px width=150px></td><td><li>$($show.name)</a></li>"
-                            $tvList += "<td><li><a href=`"http://www.imdb.com/title/$($omdbResponse.imdbID)/`">$($show.name)</a></li>"
-                $tvList += "<li><i>Season:</i><br/></li><ul>"
+                $tvList += "<td><li><a href=`"http://www.imdb.com/title/$($omdbResponse.imdbID)/`">$($show.name)</a></li>"
                 foreach ($season in $show.Group){
-                    $tvList += "<li>$($season.title) ($($season.leafCount) episode(s))</li>"
+                    $tvList += "<li>$($season.title) ($($season.leafCount) episode$(if ($season.leafCount -gt 1){"s"})</li>"
                 }
             }
+            $movieList += "</tr>"
+
+            Clear-Variable simpleResponse, detailedResponse, contentRating, imdbID, season
+
             $tvList += "</ul></ul></td></tr>"
         }
     }
     $tvList += "</table><br/>"
 }
-
 
 
 if (($movieCount -eq 0) -AND ($tvCount -eq 0)) {
@@ -229,20 +275,19 @@ if (($movieCount -eq 0) -AND ($tvCount -eq 0)) {
 }
 
 if (-not $OmitVersionNumber) {
-    $body += "<br><br><br><br><p align = right><font size = 1 color = Gray>Plex Version: $((Invoke-RestMethod "$url`:$port/?X-Plex-Token=$Token" -Headers @{"accept"="application/json"}).mediaContainer.version)</p></font>"
+    $body += "<br><br><br><br><p align = right><font size = 1 color = Gray>Plex Version: $((Invoke-RestMethod "$url`:$port/?X-Plex-Token=$plexToken" -Headers @{"accept"="application/json"}).mediaContainer.version). Posters/metadata from TMDb.</p></font>"
 }
 
 $startDate = Get-Date (Get-Date).AddDays(-$days) -Format 'MMM d'
 $endDate = Get-Date -Format 'MMM d'
-    
-$credentials = Get-StoredCredential -Name $cred
+
     
 # If not otherwise specified, set the To address the same as the From
 if ($EmailTo -eq 'default') {
-    $EmailTo = $credentials.UserName
+    $EmailTo = $emailCreds.UserName
 }
 $subject = "Plex Additions from $startDate-$endDate"
 
 if (-not($PreventSendingEmptyList -and (($movieCount+$tvCount) -eq 0))) {
-    Send-MailMessage -From $($credentials.UserName) -to $EmailTo -SmtpServer $SMTPserver -Port $SMTPport -UseSsl -Credential $credentials -Subject $subject -Body $body -BodyAsHtml
+    Send-MailMessage -From $($emailCreds.UserName) -to $EmailTo -SmtpServer $SMTPserver -Port $SMTPport -UseSsl -Credential $emailCreds -Subject $subject -Body $body -BodyAsHtml
 }
