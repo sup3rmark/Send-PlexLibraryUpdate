@@ -10,10 +10,10 @@ This list will include information pulled dynamically from OMDBapi.com, the Open
 See param block for descriptions of available parameters
 
 .EXAMPLE
-PS C:\>PlexCheck.ps1
+PS C:\>Send-PlexLibraryUpdate.ps1
 
 .EXAMPLE
-PS C:\>PlexCheck.ps1 -Url 10.0.0.100 -Port 12345 -Days 14 -EmailTo test@test.com -ExcludeLib 11 -PreventSendingEmptyList -OmitVersionNumber
+PS C:\>Send-PlexLibraryUpdate.ps1 -Url 10.0.0.100 -Port 12345 -Days 14 -EmailTo test@test.com -ExcludeLib 11 -PreventSendingEmptyList -OmitVersionNumber
 
 .NOTES
     Requires CredentialManager module.
