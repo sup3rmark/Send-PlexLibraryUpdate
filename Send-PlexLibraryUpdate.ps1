@@ -208,6 +208,65 @@ $imgPlex = "http://i.imgur.com/RyX9y3A.jpg"
 $searchURL = "https://api.themoviedb.org/3/find"
 $imdbIDformat = [Regex]::new('tt\d{7,8}')
 $tvdbIDformat = [Regex]::new('[1-9]\d*')
+
+$style = @"
+<html>
+<head>
+<style type="text/css">
+table
+    {
+        width: 95%
+    }
+td
+    {
+        padding: 5px;
+        vertical-align:middle;
+    }
+a
+    {
+        color: #1a4b7f;
+        text-decoration: none;
+    }
+a:hover
+    {
+        text-decoration: underline;
+    }
+a:visited
+    {
+        color: #636;
+    }
+.center
+    {
+        text-align: center;
+    }
+ul
+    {
+        list-style-position: outside;
+    }
+h1
+    { 
+        display: block;
+        font-size: 2em;
+        margin-top: 0.67em;
+        margin-bottom: 0.67em;
+        margin-left: 0;
+        margin-right: 0;
+        font-weight: bold;
+    }
+h2
+    { 
+        display: block;
+        font-size: 1.5em;
+        margin-top: 0.83em;
+        margin-bottom: 0.83em;
+        margin-left: 0;
+        margin-right: 0;
+        font-weight: bold;
+    }
+</style>
+</head>
+<body>
+"@
 #endregion
 
 $response = Invoke-RestMethod "$url`:$port/library/recentlyAdded/?X-Plex-Token=$plexToken" -Headers @{"accept"="application/json"} | Select-Object -ExpandProperty MediaContainer | Select-Object -ExpandProperty Metadata
@@ -224,8 +283,7 @@ $tvShows = $response |
 
 # Initialize the counters and lists
 $movieCount = 0
-$movieList = "<h1>Movies:</h1><br/><br/>"
-$movieList += "<table style=`"width:75%`">"
+$movieList = "<h2>Movies:</h2>"
 
 if ($($movies | Measure-Object).count -gt 0) {
     foreach ($movie in $movies) {
@@ -253,7 +311,7 @@ if ($($movies | Measure-Object).count -gt 0) {
                 Try {
                     Invoke-WebRequest -Uri "$PlexUrl`:$PlexPort$($movie.thumb)?X-Plex-Token=$plexToken" -OutVariable moviePoster -ErrorAction Stop
                     $imgurLink = Invoke-ImgurUpload -ClientID $imgurCreds.UserName -ImageBase64 ([convert]::ToBase64String($moviePoster.content)) -PlexPath $movie.thumb -FilePath $ImgurFilePath -ErrorAction Stop
-                    $movieList += "<tr><td><img src=`"$($imgurLink.ImgurLink)`" width=154px height=$(154/$($imgurLink.width)*$($imgurLink.height))</td>"
+                    $movieList += "<tr><td><img src=`"$($imgurLink.ImgurLink)`" width=154px height=$(154/$($imgurLink.width)*$($imgurLink.height))></td>"
                 }
                 Catch {
                     $posterFail = $true
@@ -261,14 +319,14 @@ if ($($movies | Measure-Object).count -gt 0) {
             }
             else {
                 if ($detailedResponse.poster_path) {
-                    $movieList += "<tr><td><img src=`"https://image.tmdb.org/t/p/w154$($detailedResponse.poster_path)`"</td>"
+                    $movieList += "<tr><td><img src=`"https://image.tmdb.org/t/p/w154$($detailedResponse.poster_path)`"></td>"
                 } else {
                     $posterFail = $true
                 }
             }
             # If the poster was unavailable, substitute a Plex logo
             if ($posterFail) {$movieList += "<tr><td><img src=`"$imgPlex`" height=154px width=154px></td>"}
-            $movieList += "<td><h2><a href=`"http://www.imdb.com/title/$($detailedResponse.imdb_ID)/`">$($detailedResponse.title)</a> ($(($detailedResponse.release_date).split('-')[0]))</h2>"
+            $movieList += "<td><b><a href=`"http://www.imdb.com/title/$($detailedResponse.imdb_ID)/`">$($detailedResponse.title)</a></b> ($(($detailedResponse.release_date).split('-')[0]))"
             $movieList += "<ul><li><i>Genre$(if($detailedResponse.Genres.count -gt 1){"s"}):</i> $($detailedResponse.Genres.name -join ', ')</li>"
             $movieList += "<li><i>Rating:</i> $($movie.contentRating)</li>"
             $movieList += "<li><i>Runtime:</i> $($detailedResponse.runtime) minutes</li>"
@@ -285,96 +343,86 @@ if ($($movies | Measure-Object).count -gt 0) {
 
         Clear-Variable simpleResponse, detailedResponse, posterFail
     }
-    $movieList += "</table><br/><br/>"
+    $movieList += "</table><br/>"
 }
 
 $tvCount = 0
-$tvList = "<h1>TV Seasons:</h1><br/><br/>"
-$tvList += "<table style=`"width:75%`">"
+$tvList = "<h2>TV Seasons:</h2>"
 
 if ($($tvShows | Measure-Object).Count -gt 0) {
     foreach ($show in $tvShows) {
-        # Due to how shows are nested, gotta dig deep to get the librarySectionID
-        if ($($show.group) -is [array]) {
-            [int]$section = $($show.Group)[0].librarySectionID
-        } else {
-            [int]$section = $($show.Group).librarySectionID
+        # Sleep every 15 shows for that TMDB rate limiting, even just the first one since we probably just did a bunch of movies.
+        if ($tvCount%15 -eq 0) {
+            Write-Verbose "On show $tvCount, waiting 10 seconds..."
+            Start-Sleep -Seconds 10
         }
 
-        # Make sure the media we're parsing isn't in an excluded library
-        if (-not($ExcludeLib.Contains($section))){
-            # Sleep every 15 shows for that TMDB rate limiting, even just the first one since we probably just did a bunch of movies.
-            if ($tvCount%15 -eq 0) {
-                Write-Verbose "On show $tvCount, waiting 10 seconds..."
-                Start-Sleep -Seconds 10
-            }
+        # Count it!
+        $tvCount++
+        $posterFail = $false
 
-            # Count it!
-            $tvCount++
+        $tvdbID = ($tvdbIDformat.matches($show.group.guid).value)[0]
 
-            $tvdbID = ($tvdbIDformat.matches($show.group.guid).value)[0]
+        Write-Verbose "Looking up $($show.name) ($tvCount / $($tvShows | Measure-Object | Select-Object -ExpandProperty Count))."
 
-            Write-Verbose "Looking up $($show.name) ($tvCount / $($tvShows | Measure-Object | Select-Object -ExpandProperty Count))."
+        # Retrieve movie info from The Movie Database
+        $simpleResponse = (Invoke-RestMethod "$searchURL/$tvdbID`?api_key=$tmdbToken&language=en-US&external_source=tvdb_id").tv_results
 
-            # Retrieve movie info from The Movie Database
-            $simpleResponse = (Invoke-RestMethod "$searchURL/$tvdbID`?api_key=$tmdbToken&language=en-US&external_source=tvdb_id").tv_results
+        # Assuming we have a valid response, pull detailed info on the movie
+        if ($simpleResponse.id) {
+            $detailedResponse = (Invoke-RestMethod "https://api.themoviedb.org/3/tv/$($simpleResponse.id)?api_key=$tmdbToken&language=en-US")
+            $contentRating = (Invoke-RestMethod "https://api.themoviedb.org/3/tv/$($simpleResponse.id)/content_ratings?api_key=$tmdbToken&language=en-US").Results | Where-Object {$_.iso_3166_1 -eq 'US'} | Select-Object -ExpandProperty Rating
+            $imdbID = (Invoke-RestMethod "https://api.themoviedb.org/3/tv/$($simpleResponse.id)/external_ids?api_key=$tmdbToken&language=en-US").imdb_id
+        }
 
-            # Assuming we have a valid response, pull detailed info on the movie
-            if ($simpleResponse.id) {
-                $detailedResponse = (Invoke-RestMethod "https://api.themoviedb.org/3/tv/$($simpleResponse.id)?api_key=$tmdbToken&language=en-US")
-                $contentRating = (Invoke-RestMethod "https://api.themoviedb.org/3/tv/$($simpleResponse.id)/content_ratings?api_key=$tmdbToken&language=en-US").Results | Where-Object {$_.iso_3166_1 -eq 'US'} | Select-Object -ExpandProperty Rating
-                $imdbID = (Invoke-RestMethod "https://api.themoviedb.org/3/tv/$($simpleResponse.id)/external_ids?api_key=$tmdbToken&language=en-US").imdb_id
-            }
-
-            if ($detailedResponse.id) {
-                if ($UploadPostersToImgur) {
-                    Try {
-                        Invoke-WebRequest -Uri "$PlexUrl`:$PlexPort$($show.thumb)?X-Plex-Token=$plexToken" -OutVariable showPoster -ErrorAction Stop
-                        $imgurLink = Invoke-ImgurUpload -ClientID $imgurCreds.UserName -ImageBase64 ([convert]::ToBase64String($showPoster.content)) -PlexPath $show.thumb -FilePath $ImgurFilePath -ErrorAction Stop
-                        $tvList += "<tr><td><img src=`"$($imgurLink.ImgurLink)`" width=154px height=$(154/$($imgurLink.width)*$($imgurLink.height))</td>"
-                    }
-                    Catch {
-                        $posterFail = $true
-                    }
+        if ($detailedResponse.id) {
+            if ($UploadPostersToImgur) {
+                Try {
+                    Invoke-WebRequest -Uri "$PlexUrl`:$PlexPort$($show.group.parentThumb | Select-Object -First 1)?X-Plex-Token=$plexToken" -OutVariable showPoster -ErrorAction Stop
+                    $imgurLink = Invoke-ImgurUpload -ClientID $imgurCreds.UserName -ImageBase64 ([convert]::ToBase64String($showPoster.content)) -PlexPath $($show.group.parentThumb | Select-Object -First 1) -FilePath $ImgurFilePath -ErrorAction Stop
+                    $tvList += "<tr><td><img src=`"$($imgurLink.ImgurLink)`" width=154px height=$(154/$($imgurLink.width)*$($imgurLink.height))></td>"
                 }
-                else {
-                    if ($detailedResponse.poster_path) {
-                        $tvList += "<tr><td><img src=`"https://image.tmdb.org/t/p/w154$($detailedResponse.poster_path)`"</td>"
-                    } else {
-                        $posterFail = $true
-                    }
-                }
-                # If the poster was unavailable, substitute a Plex logo
-                if ($posterFail) {$tvList += "<tr><td><img src=`"$imgPlex`" height=154px width=154px></td>"}
-
-                $tvList += "<td><h2><a href=`"http://www.imdb.com/title/$imdbID/`">$($show.name)</a></h>"
-                $tvList += "<ul>"
-                if ($detailedResponse.genres) {$tvList += "<li><i>Genre:</i> $($detailedResponse.genres.name -join ", ")</li>"}
-                if ($contentRating) {$tvList += "<li><i>Rating:</i> $contentRating</li>"}
-                $tvList += "<li><i>Plot:</i> $($detailedResponse.overview)</li>"
-                $tvList += "<li><i>Now available:</i><br/></li><ul>"
-                foreach ($season in ($show.Group | Sort-Object @{e={$_.index -as [int]}})){
-                    $tvList += "<li>$($season.title): $($season.leafCount) episode$(if ($season.leafCount -gt 1){"s"})</li>"
+                Catch {
+                    Write-Verbose "Failed to get Imgur link for this show's poster. Exception: $($_.Exception.Message)"
+                    $posterFail = $true
                 }
             }
             else {
-                # If the series couldn't be found in the DB, fail gracefully
-                $tvList += "<tr><td><img src=`"$imgPlex`" height=150px width=150px></td><td><li>$($show.name)</a></li>"
-                $tvList += "<td><li><a href=`"http://www.imdb.com/title/$($omdbResponse.imdbID)/`">$($show.name)</a></li>"
-                foreach ($season in $show.Group){
-                    $tvList += "<li>$($season.title) ($($season.leafCount) episode$(if ($season.leafCount -gt 1){"s"})</li>"
+                if ($detailedResponse.poster_path) {
+                    $tvList += "<tr><td><img src=`"https://image.tmdb.org/t/p/w154$($detailedResponse.poster_path)`"></td>"
+                } else {
+                    $posterFail = $true
                 }
             }
-            $tvList += "</ul></td>"
+            # If the poster was unavailable, substitute a Plex logo
+            if ($posterFail) {$tvList += "<tr><td><img src=`"$imgPlex`" height=154px width=154px></td>"}
 
-            Clear-Variable simpleResponse, detailedResponse, contentRating, imdbID, season
+            $tvList += "<td><b><a href=`"http://www.imdb.com/title/$imdbID/`">$($show.name)</a></b> ($($detailedResponse.first_air_date.split('-')[0])-$($detailedResponse.last_air_date.split('-')[0]))"
+            $tvList += "<ul>"
+            if ($detailedResponse.genres) {$tvList += "<li><i>Genre:</i> $($detailedResponse.genres.name -join ", ")</li>"}
+            if ($contentRating) {$tvList += "<li><i>Rating:</i> $contentRating</li>"}
+            $tvList += "<li><i>Plot:</i> $($detailedResponse.overview)</li>"
+            $tvList += "<li><i>Now available:</i><br/></li><ul>"
+            foreach ($season in ($show.Group | Sort-Object @{e={$_.index -as [int]}})){
+                $tvList += "<li>$($season.title) - $($season.leafCount) episode$(if ($season.leafCount -gt 1){"s"})</li>"
+            }
         }
+        else {
+            # If the series couldn't be found in the DB, fail gracefully
+            $tvList += "<tr><td><img src=`"$imgPlex`" height=150px width=150px></td><td><li>$($show.name)</a></li>"
+            $tvList += "<td><li><a href=`"http://www.imdb.com/title/$($omdbResponse.imdbID)/`">$($show.name)</a></li>"
+            foreach ($season in $show.Group){
+                $tvList += "<ul><li>$($season.title) - $($season.leafCount) episode$(if ($season.leafCount -gt 1){"s"})</li>"
+            }
+        }
+        $tvList += "</ul></td>"
+
+        Clear-Variable simpleResponse, detailedResponse, contentRating, imdbID, season
     }
-    $tvList += "</table><br/><br/>"
+    $tvList += "</table><br/>"
 }
 
-$collectionInfo = "<h1>Featured Collection:</h1><br/><br/>"
-$collectionInfo += "<table style=`"width:75%`">"
+$collectionInfo = "<h2>Featured Collection:</h2>"
 
 if ($FeatureRandomCollection) {
     $libraries = (Invoke-RestMethod "$PlexUrl`:$PlexPort/library/sections?X-Plex-Token=$plexToken").MediaContainer.Directory
@@ -391,17 +439,16 @@ if ($FeatureRandomCollection) {
         if ($UploadPostersToImgur) {
             Invoke-WebRequest -Uri "$PlexUrl`:$PlexPort$($collection.thumb)?X-Plex-Token=$plexToken" -OutVariable collectionPoster
             $imgurLink = Invoke-ImgurUpload -ClientID $imgurCreds.UserName -ImageBase64 ([convert]::ToBase64String($collectionPoster.content)) -PlexPath $collection.thumb -FilePath $ImgurFilePath
-            $collectionInfo += "<tr><td><img src=`"$($imgurLink.ImgurLink)`" width=154px height=$(154/$($imgurLink.width)*$($imgurLink.height))</td>"
+            $collectionInfo += "<tr><td><img src=`"$($imgurLink.ImgurLink)`" width=154px height=$(154/$($imgurLink.width)*$($imgurLink.height))></td>"
         }
         else {
             # If the poster wasn't uploaded, substitute a Plex logo
             $collectionInfo += "<tr><td><img src=`"$imgPlex`" height=154px width=154px></td>"
         }
-        $collectionInfo += "<td><h2><blockquote>$($collection.title) ($($collection.minYear)$(if ($collection.MaxYear -gt $collection.MinYear){" - $($collection.MaxYear)"}))</blockquote></h2>"
+        $collectionInfo += "<td><b>$($collection.title)</b> ($($collection.minYear)$(if ($collection.MaxYear -gt $collection.MinYear){" - $($collection.MaxYear)"}))"
         $collectionInfo += "<ul>"
-        if($collection.summary) {
-            $collectionInfo += "<li><i>Summary:</i></li>"
-            $collectionInfo += "<ul><li>$($collection.summary -replace '\n','</li><li>')</li></ul>"
+        if ($collection.summary) {
+            $collectionInfo += "<li><i>Information:</i> $($collection.summary -replace '\n',' ')</li>"
         }
         $collectionInfo += "<li><i>Movie Count:</i> $($collection.childCount.ToString())</li>"
         $collectionInfo += "<li><i>Last Updated:</i> $(Get-Date $epoch.AddSeconds($collection.updatedAt) -Format 'MMMM d')</li></ul></td>"
@@ -412,24 +459,24 @@ if ($FeatureRandomCollection) {
 
 
 if (($movieCount -eq 0) -AND ($tvCount -eq 0)) {
-    $body = "Sorry, but no movies or TV shows have been added to the Plex library in the past $days days. Check out the Featured Collection in the meantime!<br/><br/>"
+    $body = "$style`Sorry, but no movies or TV shows have been added to the Plex library in the past $days days. Check out the Featured Collection in the meantime!<br/><br/>"
 
     if ($collection) {
-        $body += $collectionInfo
+        $body += $collectionInfo -replace '\n','<br>'
     }
 } else {
-    $body = "<h1>Hey there!</h1><br/>Here's the list of additions to my Plex library in the past $days days.<br/>"
+    $body = "$style`<h1>Hello!</h1><br/>Here's the list of additions to my Plex library in the past $days days.<br/>"
 
     if ($movieCount -gt 0) {
-        $body += $movieList
+        $body += $movieList -replace '\n','<br>'
     }
 
     if ($tvCount -gt 0) {
-        $body += $tvList
+        $body += $tvList -replace '\n','<br>'
     }
 
     if ($collection) {
-        $body += $collectionInfo
+        $body += $collectionInfo -replace '\n','<br>'
     }
 
     $body += "Enjoy!"
@@ -440,6 +487,8 @@ if (($movieCount -eq 0) -AND ($tvCount -eq 0)) {
 if (-not $OmitVersionNumber) {
     $body += "<br><br><br><br><p align = right><font size = 1 color = Gray>Plex Version: $((Invoke-RestMethod "$url`:$port/?X-Plex-Token=$plexToken" -Headers @{"accept"="application/json"}).mediaContainer.version). Posters/metadata from TMDb.</p></font>"
 }
+
+$body += "</body></html>"
 
 $startDate = Get-Date (Get-Date).AddDays(-$days) -Format 'MMM d'
 $endDate = Get-Date -Format 'MMM d'
@@ -452,5 +501,5 @@ if ($EmailTo -eq 'default') {
 $subject = "Plex Additions from $startDate-$endDate"
 
 if (-not($PreventSendingEmptyList -and (($movieCount+$tvCount) -eq 0))) {
-    Send-MailMessage -From $($emailCreds.UserName) -to $EmailTo -SmtpServer $SMTPserver -Port $SMTPport -UseSsl -Credential $emailCreds -Subject $subject -Body ($body -replace '\n','<br>') -BodyAsHtml -Encoding UTF8
+    Send-MailMessage -From $($emailCreds.UserName) -to $EmailTo -SmtpServer $SMTPserver -Port $SMTPport -UseSsl -Credential $emailCreds -Subject $subject -Body $body -BodyAsHtml -Encoding UTF8
 }
