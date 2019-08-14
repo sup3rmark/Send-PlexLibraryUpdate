@@ -263,6 +263,22 @@ h2
         margin-right: 0;
         font-weight: bold;
     }
+@media (max-width: 768px)
+    {
+      table {
+        width: 100%;
+      }
+      td {
+        display: block;
+        width: 100%;
+      }
+      .center {
+          display: block;
+          margin-left: auto;
+          margin-right: auto;
+          width: 50%;
+        }
+    }
 </style>
 </head>
 <body>
@@ -311,7 +327,7 @@ if ($($movies | Measure-Object).count -gt 0) {
                 Try {
                     Invoke-WebRequest -Uri "$PlexUrl`:$PlexPort$($movie.thumb)?X-Plex-Token=$plexToken" -OutVariable moviePoster -ErrorAction Stop
                     $imgurLink = Invoke-ImgurUpload -ClientID $imgurCreds.UserName -ImageBase64 ([convert]::ToBase64String($moviePoster.content)) -PlexPath $movie.thumb -FilePath $ImgurFilePath -ErrorAction Stop
-                    $movieList += "<tr><td><img src=`"$($imgurLink.ImgurLink)`" width=154px height=$(154/$($imgurLink.width)*$($imgurLink.height))></td>"
+                    $movieList += "<tr><td><img src=`"$($imgurLink.ImgurLink)`" width=154px height=$(154/$($imgurLink.width)*$($imgurLink.height)) class=`"center`"></td>"
                 }
                 Catch {
                     $posterFail = $true
@@ -319,13 +335,13 @@ if ($($movies | Measure-Object).count -gt 0) {
             }
             else {
                 if ($detailedResponse.poster_path) {
-                    $movieList += "<tr><td><img src=`"https://image.tmdb.org/t/p/w154$($detailedResponse.poster_path)`"></td>"
+                    $movieList += "<tr><td><img src=`"https://image.tmdb.org/t/p/w154$($detailedResponse.poster_path)`" class=`"center`"></td>"
                 } else {
                     $posterFail = $true
                 }
             }
             # If the poster was unavailable, substitute a Plex logo
-            if ($posterFail) {$movieList += "<tr><td><img src=`"$imgPlex`" height=154px width=154px></td>"}
+            if ($posterFail) {$movieList += "<tr><td><img src=`"$imgPlex`" height=154px width=154px class=`"center`"></td>"}
             $movieList += "<td><b><a href=`"http://www.imdb.com/title/$($detailedResponse.imdb_ID)/`">$($detailedResponse.title)</a></b> ($(($detailedResponse.release_date).split('-')[0]))"
             $movieList += "<ul><li><i>Genre$(if($detailedResponse.Genres.count -gt 1){"s"}):</i> $($detailedResponse.Genres.name -join ', ')</li>"
             $movieList += "<li><i>Rating:</i> $($movie.contentRating)</li>"
@@ -337,7 +353,7 @@ if ($($movies | Measure-Object).count -gt 0) {
         }
         else {
             # If the movie couldn't be retrieved, fail gracefully
-            $movieList += "<tr><td><img src=`"$imgPlex`" height=150px width=150px></td><td><li>$($movie.title)</a> ($($movie.year)) - no additional information</li></td>"
+            $movieList += "<tr><td><img src=`"$imgPlex`" height=150px width=150px class=`"center`"></td><td><li>$($movie.title)</a> ($($movie.year)) - no additional information</li></td>"
         }
         $movieList += "</tr>"
 
@@ -380,7 +396,7 @@ if ($($tvShows | Measure-Object).Count -gt 0) {
                 Try {
                     Invoke-WebRequest -Uri "$PlexUrl`:$PlexPort$($show.group.parentThumb | Select-Object -First 1)?X-Plex-Token=$plexToken" -OutVariable showPoster -ErrorAction Stop
                     $imgurLink = Invoke-ImgurUpload -ClientID $imgurCreds.UserName -ImageBase64 ([convert]::ToBase64String($showPoster.content)) -PlexPath $($show.group.parentThumb | Select-Object -First 1) -FilePath $ImgurFilePath -ErrorAction Stop
-                    $tvList += "<tr><td><img src=`"$($imgurLink.ImgurLink)`" width=154px height=$(154/$($imgurLink.width)*$($imgurLink.height))></td>"
+                    $tvList += "<tr><td><img src=`"$($imgurLink.ImgurLink)`" width=154px height=$(154/$($imgurLink.width)*$($imgurLink.height)) class=`"center`"></td>"
                 }
                 Catch {
                     Write-Verbose "Failed to get Imgur link for this show's poster. Exception: $($_.Exception.Message)"
@@ -389,13 +405,13 @@ if ($($tvShows | Measure-Object).Count -gt 0) {
             }
             else {
                 if ($detailedResponse.poster_path) {
-                    $tvList += "<tr><td><img src=`"https://image.tmdb.org/t/p/w154$($detailedResponse.poster_path)`"></td>"
+                    $tvList += "<tr><td><img src=`"https://image.tmdb.org/t/p/w154$($detailedResponse.poster_path)`" class=`"center`"></td>"
                 } else {
                     $posterFail = $true
                 }
             }
             # If the poster was unavailable, substitute a Plex logo
-            if ($posterFail) {$tvList += "<tr><td><img src=`"$imgPlex`" height=154px width=154px></td>"}
+            if ($posterFail) {$tvList += "<tr><td><img src=`"$imgPlex`" height=154px width=154px class=`"center`"></td>"}
 
             $tvList += "<td><b><a href=`"http://www.imdb.com/title/$imdbID/`">$($show.name)</a></b> ($($detailedResponse.first_air_date.split('-')[0])-$($detailedResponse.last_air_date.split('-')[0]))"
             $tvList += "<ul>"
@@ -409,7 +425,7 @@ if ($($tvShows | Measure-Object).Count -gt 0) {
         }
         else {
             # If the series couldn't be found in the DB, fail gracefully
-            $tvList += "<tr><td><img src=`"$imgPlex`" height=150px width=150px></td><td><li>$($show.name)</a></li>"
+            $tvList += "<tr><td><img src=`"$imgPlex`" height=150px width=150px class=`"center`"></td><td><li>$($show.name)</a></li>"
             $tvList += "<td><li><a href=`"http://www.imdb.com/title/$($omdbResponse.imdbID)/`">$($show.name)</a></li>"
             foreach ($season in $show.Group){
                 $tvList += "<ul><li>$($season.title) - $($season.leafCount) episode$(if ($season.leafCount -gt 1){"s"})</li>"
@@ -439,11 +455,11 @@ if ($FeatureRandomCollection) {
         if ($UploadPostersToImgur) {
             Invoke-WebRequest -Uri "$PlexUrl`:$PlexPort$($collection.thumb)?X-Plex-Token=$plexToken" -OutVariable collectionPoster
             $imgurLink = Invoke-ImgurUpload -ClientID $imgurCreds.UserName -ImageBase64 ([convert]::ToBase64String($collectionPoster.content)) -PlexPath $collection.thumb -FilePath $ImgurFilePath
-            $collectionInfo += "<tr><td><img src=`"$($imgurLink.ImgurLink)`" width=154px height=$(154/$($imgurLink.width)*$($imgurLink.height))></td>"
+            $collectionInfo += "<tr><td><img src=`"$($imgurLink.ImgurLink)`" width=154px height=$(154/$($imgurLink.width)*$($imgurLink.height)) class=`"center`"></td>"
         }
         else {
             # If the poster wasn't uploaded, substitute a Plex logo
-            $collectionInfo += "<tr><td><img src=`"$imgPlex`" height=154px width=154px></td>"
+            $collectionInfo += "<tr><td><img src=`"$imgPlex`" height=154px width=154px class=`"center`"></td>"
         }
         $collectionInfo += "<td><b>$($collection.title)</b> ($($collection.minYear)$(if ($collection.MaxYear -gt $collection.MinYear){" - $($collection.MaxYear)"}))"
         $collectionInfo += "<ul>"
