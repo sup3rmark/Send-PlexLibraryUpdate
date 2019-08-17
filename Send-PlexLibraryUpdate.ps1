@@ -29,10 +29,10 @@ PS C:\>Send-PlexLibraryUpdate.ps1 -Url 10.0.0.100 -Port 12345 -Days 14 -EmailTo 
 #>
 param(
     # Optionally specify IP of the server we want to connect to
-    [string] $Url = 'http://127.0.0.1',
+    [string] $PlexUrl = 'http://127.0.0.1',
 
     # Optionally define a custom port
-    [int] $Port = '32400',
+    [int] $PlexPort = '32400',
 
     # Optionally specify a number of days back to report
     [int] $Days = 7,
@@ -277,7 +277,10 @@ h2
           margin-left: auto;
           margin-right: auto;
           width: 50%;
-        }
+      }
+      a {
+        text-decoration: underline;
+      }
     }
 </style>
 </head>
@@ -285,7 +288,7 @@ h2
 "@
 #endregion
 
-$response = Invoke-RestMethod "$url`:$port/library/recentlyAdded/?X-Plex-Token=$plexToken" -Headers @{"accept"="application/json"} | Select-Object -ExpandProperty MediaContainer | Select-Object -ExpandProperty Metadata
+$response = Invoke-RestMethod "$PlexUrl`:$PlexPort/library/recentlyAdded/?X-Plex-Token=$plexToken" -Headers @{"accept"="application/json"} | Select-Object -ExpandProperty MediaContainer | Select-Object -ExpandProperty Metadata
 $response = $response | Where-Object {$_.addedAt -gt $startDate -and $_.librarySectionTitle -notin $ExcludeLib}
 # Grab those libraries
 
@@ -501,7 +504,7 @@ if (($movieCount -eq 0) -AND ($tvCount -eq 0)) {
 
 
 if (-not $OmitVersionNumber) {
-    $body += "<br><br><br><br><p align = right><font size = 1 color = Gray>Plex Version: $((Invoke-RestMethod "$url`:$port/?X-Plex-Token=$plexToken" -Headers @{"accept"="application/json"}).mediaContainer.version). Posters/metadata from TMDb.</p></font>"
+    $body += "<br><br><br><br><p align = right><font size = 1 color = Gray>Plex Version: $((Invoke-RestMethod "$PlexUrl`:$PlexPort/?X-Plex-Token=$plexToken" -Headers @{"accept"="application/json"}).mediaContainer.version). Posters/metadata from TMDb.</p></font>"
 }
 
 $body += "</body></html>"
@@ -518,4 +521,5 @@ $subject = "Plex Additions from $startDate-$endDate"
 
 if (-not($PreventSendingEmptyList -and (($movieCount+$tvCount) -eq 0))) {
     Send-MailMessage -From $($emailCreds.UserName) -to $EmailTo -SmtpServer $SMTPserver -Port $SMTPport -UseSsl -Credential $emailCreds -Subject $subject -Body $body -BodyAsHtml -Encoding UTF8
+    Write-Verbose "Sent email to $EmailTo."
 }
