@@ -60,6 +60,9 @@ param(
     # Specify whether to pick a random collection to feature
     [switch] $FeatureRandomCollection,
 
+    # Specify a specific collection to feature by name (overrides $FeatureRandomCollection unless the specified collection isn't found)
+    [string] $FeatureSpecificCollection,
+
     # Specify whether to upload all movie posters to Imgur rather than use TVDB posters
     [Parameter (ParameterSetName = 'imgur')]
     [switch] $UploadPostersToImgur,
@@ -221,6 +224,7 @@ td
     {
         padding: 5px;
         vertical-align:middle;
+        text-align: left;
     }
 a
     {
@@ -300,11 +304,11 @@ $tvShows = $response |
     Where-Object {$_.type -eq 'season'} |
     Group-Object parentTitle
 
-# Initialize the counters and lists
-$movieCount = 0
-$movieList = "<h2>Movies:</h2>"
-
 if ($($movies | Measure-Object).count -gt 0) {
+    # Initialize the counters and lists
+    $movieCount = 0
+    $movieList = "<h2>Movies:</h2><br/><table>"
+
     foreach ($movie in $movies) {
         # TMDB rate-limits. Currently 40 requests every 10 seconds, so sleep 10 seconds every 15 movies to be safe (2 calls per movie)
         # https://developers.themoviedb.org/3/getting-started/request-rate-limiting
@@ -356,7 +360,9 @@ if ($($movies | Measure-Object).count -gt 0) {
         }
         else {
             # If the movie couldn't be retrieved, fail gracefully
-            $movieList += "<tr><td><img src=`"$imgPlex`" height=150px width=150px class=`"center`"></td><td><li>$($movie.title)</a> ($($movie.year)) - no additional information</li></td>"
+            $movieList += "<tr><td><img src=`"$imgPlex`" height=154px width=154px class=`"center`"></td>"
+            $movieList += "<td><b>$($movie.title)</b> ($($movie.year))"
+            $movieList += "<ul><li>No additional information available.</li></ul></td>"
         }
         $movieList += "</tr>"
 
@@ -365,10 +371,11 @@ if ($($movies | Measure-Object).count -gt 0) {
     $movieList += "</table><br/>"
 }
 
-$tvCount = 0
-$tvList = "<h2>TV Seasons:</h2>"
-
 if ($($tvShows | Measure-Object).Count -gt 0) {
+    # Initialize the counters and lists
+    $tvCount = 0
+    $tvList = "<h2>TV Seasons:</h2><br/><table>"
+
     foreach ($show in $tvShows) {
         # Sleep every 15 shows for that TMDB rate limiting, even just the first one since we probably just did a bunch of movies.
         if ($tvCount%15 -eq 0) {
@@ -434,16 +441,16 @@ if ($($tvShows | Measure-Object).Count -gt 0) {
                 $tvList += "<ul><li>$($season.title) - $($season.leafCount) episode$(if ($season.leafCount -gt 1){"s"})</li>"
             }
         }
-        $tvList += "</ul></td>"
+        $tvList += "</ul></td></tr>"
 
         Clear-Variable simpleResponse, detailedResponse, contentRating, imdbID, season
     }
     $tvList += "</table><br/>"
 }
 
-$collectionInfo = "<h2>Featured Collection:</h2>"
+$collectionInfo = "<h2>Featured Collection:</h2><br/><table>"
 
-if ($FeatureRandomCollection) {
+if ($FeatureRandomCollection -or $FeatureSpecificCollection) {
     $libraries = (Invoke-RestMethod "$PlexUrl`:$PlexPort/library/sections?X-Plex-Token=$plexToken").MediaContainer.Directory
     $movieLibraries = $libraries | Where-Object {$_.type -eq 'movie' -and $_.title -notin $ExcludeLib}
     
@@ -453,7 +460,15 @@ if ($FeatureRandomCollection) {
     }
 
     if ($collections) {
-        $collection = $collections[(Get-Random -Minimum 0 -Maximum ($collections | Measure-Object).count)]
+        if ($FeatureSpecificCollection) {
+            Write-Verbose "A specific collection has been provided to feature. Looking for $FeatureSpecificCollection."
+            $collection = $collections | Where-Object {$_.title -eq $FeatureSpecificCollection}
+        }
+        
+        # If the specific collection specified was not found, or none was provided, pick one at random.
+        if (-not $collection) {
+            $collection = $collections[(Get-Random -Minimum 0 -Maximum ($collections | Measure-Object).count)]
+        }
 
         if ($UploadPostersToImgur) {
             Invoke-WebRequest -Uri "$PlexUrl`:$PlexPort$($collection.thumb)?X-Plex-Token=$plexToken" -OutVariable collectionPoster
@@ -470,7 +485,7 @@ if ($FeatureRandomCollection) {
             $collectionInfo += "<li><i>Information:</i> $($collection.summary -replace '\n',' ')</li>"
         }
         $collectionInfo += "<li><i>Movie Count:</i> $($collection.childCount.ToString())</li>"
-        $collectionInfo += "<li><i>Last Updated:</i> $(Get-Date $epoch.AddSeconds($collection.updatedAt) -Format 'MMMM d')</li></ul></td>"
+        $collectionInfo += "<li><i>Last Updated:</i> $(Get-Date $epoch.AddSeconds($collection.updatedAt) -Format 'MMMM d')</li></ul></td></tr>"
         $collectionInfo += "</table><br/>"
     }
     
@@ -487,21 +502,22 @@ if (($movieCount -eq 0) -AND ($tvCount -eq 0)) {
     $body = "$style`<h1>Hello!</h1><br/>Here's the list of additions to my Plex library in the past $days days.<br/>"
 
     if ($movieCount -gt 0) {
+        Write-Verbose "Movie Count: $movieCount"
         $body += $movieList -replace '\n','<br>'
     }
 
     if ($tvCount -gt 0) {
+        Write-Verbose "TV Count: $tvCount"
         $body += $tvList -replace '\n','<br>'
     }
 
     if ($collection) {
+        Write-Verbose "Collection: $($collection.title)"
         $body += $collectionInfo -replace '\n','<br>'
     }
 
     $body += "Enjoy!"
 }
-
-
 
 if (-not $OmitVersionNumber) {
     $body += "<br><br><br><br><p align = right><font size = 1 color = Gray>Plex Version: $((Invoke-RestMethod "$PlexUrl`:$PlexPort/?X-Plex-Token=$plexToken" -Headers @{"accept"="application/json"}).mediaContainer.version). Posters/metadata from TMDb.</p></font>"
@@ -522,4 +538,11 @@ $subject = "Plex Additions from $startDate-$endDate"
 if (-not($PreventSendingEmptyList -and (($movieCount+$tvCount) -eq 0))) {
     Send-MailMessage -From $($emailCreds.UserName) -to $EmailTo -SmtpServer $SMTPserver -Port $SMTPport -UseSsl -Credential $emailCreds -Subject $subject -Body $body -BodyAsHtml -Encoding UTF8
     Write-Verbose "Sent email to $EmailTo."
+}
+
+# Pop this if we're in Verbose mode to keep it up long enough to read output.
+if ($PSCmdlet.MyInvocation.BoundParameters["Verbose"].IsPresent) {
+    $response | Out-GridView
+    Write-Host 'Press any key to continue.'
+    $null = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown')
 }
